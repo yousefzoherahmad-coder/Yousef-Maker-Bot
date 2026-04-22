@@ -3,4 +3,4 @@ flask
 aiosqlite
 aiohttp
 gunicorn
-pydantic==2.6.3
+pydantic<2.0
