@@ -1,6 +1,5 @@
-aiogram
-flask
-aiosqlite
-aiohttp
-gunicorn
-
+aiogram==3.4.1
+flask==3.0.2
+aiosqlite==0.20.0
+aiohttp==3.9.3
+gunicorn==21.2.0
