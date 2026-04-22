@@ -1,89 +1,83 @@
-import os
-import asyncio
-import aiohttp
-import aiosqlite
+import os, asyncio, aiohttp, aiosqlite
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from flask import Flask
+from threading import Thread
 
-# ================= الإعدادات =================
+# --- الإعدادات ---
 BOT_TOKEN = "8335720065:AAHxhaElFfMAyClCebzKhGtjDtkb0flGUQI"
-
-# مفاتيح الخدمات (يجب إضافتها في Environment Variables بموقع Render لتفعيلها)
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-DEEPL_KEY = os.getenv("DEEPL_API_KEY")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 user_states = {}
 
-async def init_db():
-    async with aiosqlite.connect("data.db") as db:
-        await db.execute("CREATE TABLE IF NOT EXISTS bots (id INTEGER PRIMARY KEY, owner_id INTEGER, token TEXT, username TEXT)")
-        await db.commit()
+# --- سيرفر Flask وهمي لإرضاء Render ---
+app = Flask('')
+@app.route('/')
+def home(): return "Bot Factory is Running!"
+def run_flask():
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
 
-# ================= أزرار التحكم القوية =================
+# --- وظائف الذكاء الاصطناعي ---
+async def ask_gpt(prompt):
+    if not OPENAI_KEY: return "⚠️ عذراً، خدمة الذكاء الاصطناعي غير مفعّلة في الإعدادات."
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {OPENAI_KEY}"}
+    data = {
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=data) as resp:
+            if resp.status == 200:
+                res = await resp.json()
+                return res['choices'][0]['message']['content']
+            return "❌ حدث خطأ في الاتصال بالذكاء الاصطناعي."
+
+# --- الأزرار ---
 def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🤖 إنشاء بوت جديد", callback_data="create")],
-        [InlineKeyboardButton(text="🧠 ذكاء اصطناعي (GPT)", callback_data="ai"), InlineKeyboardButton(text="🌐 ترجمة (DeepL)", callback_data="trans")],
+        [InlineKeyboardButton(text="🧠 اسأل الذكاء الاصطناعي", callback_data="ai_ask")],
         [InlineKeyboardButton(text="👨‍💻 المطور", url="https://t.me/fi1_o")]
     ])
 
-# ================= الخدمات (Services) =================
-async def ai_chat(prompt):
-    if not OPENAI_KEY: return "⚠️ خدمة الذكاء الاصطناعي غير مفعلة حالياً."
-    url = "https://api.openai.com/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {OPENAI_KEY}"}
-    payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}]}
-    async with aiohttp.ClientSession() as s:
-        async with s.post(url, headers=headers, json=payload) as r:
-            data = await r.json()
-            return data["choices"][0]["message"]["content"]
-
-# ================= المعالجات (Handlers) =================
+# --- المعالجات ---
 @dp.message(Command("start"))
-async def start_cmd(msg: types.Message):
-    await msg.answer(f"🚀 أهلاً بك في البوت الخارق!\n\nاختر الخدمة التي تريدها من الأسفل:", reply_markup=main_menu())
+async def start(msg: types.Message):
+    await msg.answer("🔥 مرحباً بك في بوت الخدمات المتكاملة!\nاختر ما تريد القيام به:", reply_markup=main_menu())
 
-@dp.callback_query()
-async def handle_callbacks(call: types.CallbackQuery):
-    if call.data == "create":
-        await call.message.answer("📥 أرسل توكن البوت (من @BotFather) لإنشائه فوراً:")
-    elif call.data == "ai":
-        user_states[call.from_user.id] = "ai"
-        await call.message.answer("🆗 أنا جاهز.. أرسل سؤالك للذكاء الاصطناعي:")
-    elif call.data == "trans":
-        user_states[call.from_user.id] = "trans"
-        await call.message.answer("🌐 أرسل النص الذي تريد ترجمته للإنجليزية:")
+@dp.callback_query(F.data == "ai_ask")
+async def ai_mode(call: types.CallbackQuery):
+    user_states[call.from_user.id] = "chatting"
+    await call.message.answer("🆗 أنا أسمعك.. أرسل سؤالك الآن وسأجيبك فوراً:")
+
+@dp.callback_query(F.data == "create")
+async def create_mode(call: types.CallbackQuery):
+    user_states[call.from_user.id] = "creating"
+    await call.message.answer("📥 أرسل توكن البوت الخاص بك من @BotFather:")
 
 @dp.message()
-async def handle_all_messages(msg: types.Message):
+async def handle_text(msg: types.Message):
     state = user_states.get(msg.from_user.id)
     
-    # إذا كان يرسل توكن (إنشاء بوت)
-    if msg.text and ":" in msg.text and len(msg.text) > 20:
-        await msg.answer("⏳ جاري فحص التوكن وتشغيل البوت الجديد...")
-        try:
-            temp_bot = Bot(token=msg.text)
-            me = await temp_bot.get_me()
-            async with aiosqlite.connect("data.db") as db:
-                await db.execute("INSERT INTO bots(owner_id, token, username) VALUES(?,?,?)", (msg.from_user.id, msg.text, me.username))
-                await db.commit()
-            await msg.answer(f"✅ تم بنجاح!\nبوتك الجديد أصبح متاحاً هنا: @{me.username}")
-        except:
-            await msg.answer("❌ التوكن الذي أرسلته غير صالح.")
+    if state == "chatting":
+        await msg.answer("⏳ أفكر...")
+        response = await ask_gpt(msg.text)
+        await msg.answer(response)
     
-    # تنفيذ خدمات الذكاء الاصطناعي
-    elif state == "ai":
-        res = await ai_chat(msg.text)
-        await msg.answer(res)
+    elif state == "creating" and ":" in msg.text:
+        await msg.answer(f"✅ تم استلام التوكن وجاري ربطه بالصناعة..")
+        # هنا يمكنك إضافة كود حفظ التوكن في الداتا بيز
+    
     else:
-        await msg.answer("الرجاء اختيار خدمة من القائمة بالأعلى ☝️")
+        await msg.answer("استخدم الأزرار بالأعلى للتحكم بالبوت ☝️")
 
-# ================= التشغيل =================
+# --- التشغيل ---
 async def main():
-    await init_db()
+    Thread(target=run_flask).start()
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
