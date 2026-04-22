@@ -1,7 +1,30 @@
 import telebot
 from telebot import types
+import os
+from flask import Flask
+import threading
 
-# التوكن الخاص بك
+# --- نظام إيهام Render (Keep Alive) ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "I am alive!"
+
+def run():
+    # Render يطلب تشغيل السيرفر على هذا المنفذ تحديداً
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = threading.Thread(target=run)
+    t.daemon = True
+    t.start()
+
+# تشغيل السيرفر الوهمي في الخلفية
+keep_alive()
+
+# --- كود البوت الخاص بك ---
 API_TOKEN = '8335720065:AAHxhaElFfMAyClCebzKhGtjDtkb0flGUQI'
 bot = telebot.TeleBot(API_TOKEN)
 
@@ -15,5 +38,7 @@ def start(message):
 def ask_token(message):
     bot.send_message(message.chat.id, "ارسل توكن البوت الجديد من @BotFather:")
 
-bot.polling(none_stop=True)
-  
+# تشغيل عملية الاستقبال
+print("LEX-Ω System: Bot is starting...")
+bot.infinity_polling()
+    
