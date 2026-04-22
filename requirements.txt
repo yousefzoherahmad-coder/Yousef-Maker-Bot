@@ -1,6 +1,5 @@
-aiogram<3.0.0
+aiogram
 flask
 aiosqlite
 aiohttp
 gunicorn
-pydantic<2.0.0
